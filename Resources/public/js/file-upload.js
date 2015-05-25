@@ -1,287 +1,337 @@
 /**
  * Initialization of file upload widget
- * 
+ *
  * @author Nikolay Georgiev
- * @version 1.0
+ * @refactor Diego Yungh
+ * @version 1.0.1
  */
-jQuery(document).ready(function(){
-    
+;(function($, plupload, window, document, undefined) {
+    'use strict';
     // Set no conflict with other libraries
-    jQuery.noConflict();
-	
-    // Creates buttons
-    jQuery('.thrace-file-upload-button').button();
-
+    $.noConflict();
+    // 
+    var pluginName = "thraceFileUpload",
+        defaults = {};
     // Searching for file upload elements
-    jQuery('.thrace-file-upload').each(function(key, value){  
-        var options = jQuery(this).data('options'); 
+    var Plugin;
+    // Basic plugin pattern
+    Plugin = function(element, options) {
+        this.element = element;
+        this.$element = $(element);
+        //
+        this.options = $.extend({}, defaults, this.options, this.$element.data('options'));
+        this._defaults = defaults;
+        this._name = pluginName;
+        //
+        this.init();
+    };
 
-        jQuery('#thrace-file-btn-upload-' + options.id).click(function(){
-            return false;
-        });
-      
+    Plugin.prototype = {
+        init: function() {
+            // Buttons
+            this.registerButtons();
+            // Sections
+            this.registerElements();
+            // Events
+            this.setupEvents();
+            // check for empty input
+            this.checkEmpty();
+            // Init uploader
+            this.setupUploader();
+            // Uploader Callbacks
+            this.setupUploaderCallbacks();
+            // Uploader Events
+            this.setupUploaderEvents();
+            // Init uploader
+            this.uploader.init();
+            // Appear
+            this.$element.fadeIn(1000);
+        },
 
-        // Disables buttons
-        var disableButtons = function(){
-            jQuery('#thrace-file-btn-enabled-' + options.id).button( "option", {"disabled": true});
-            jQuery('#thrace-file-btn-remove-' + options.id).button( "option", "disabled", true );
-            jQuery('#thrace-meta-btn-edit-' + options.id).button( "option", "disabled", true );
-            
-        };
+        setupUploaderEvents: function(){
+            // Removes file from upload queue
+            this.$element.find('#thrace-upload-remove-file-' + this.options.id).find('a').click($.proxy(function() {
+                this.uploader.removeFile(
+                    this.uploader.getFile(this.fileUpload.attr('id'))
+                );
+                //
+                this.progressbar.fadeOut().next().fadeOut($.proxy(function() {
+                    this.$element.find('#thrace-upload-file-' + this.options.id).fadeIn();
+                    $('body').trigger('refreshPlUpload');
+                }, this));
+                //
+                return false;
+            }, this));
+            // Remove button click event
+            this.$element.find('#thrace-file-btn-remove-' + this.options.id).click($.proxy(function() {
+                this.$element.find('#' + this.options.scheduled_for_deletion_id).val(true);
+                this.$element.find('#' + this.options.original_name_id).val('');
+                this.$element.find('#' + this.options.hash_id).val('');
 
-        // Enables buttons
-        var enableButtons = function(){
-            jQuery('#thrace-file-btn-enabled-' + options.id).button( "option", {"disabled":false});
-            jQuery('#thrace-file-btn-remove-' + options.id).button( "option", "disabled", false );
-            jQuery('#thrace-meta-btn-edit-' + options.id).button( "option", "disabled", false );
+                this.$element.find('#thrace-file-name-' + this.options.id).hide();
+                this.$element.find('#thrace-file-size-' + this.options.id).hide();
+                this.$element.find('#thrace-file-empty-' + this.options.id).fadeIn(function() {
+                    $('body').trigger('refreshPlUpload');
+                });
+                resetMeta();
+                disableButtons();
 
-        };
-            
-        // Shows error
-        var showError = function(err_msg){
-            jQuery('#thrace-file-error-' + options.id)
-                .fadeIn(function(){
-                    jQuery('body').trigger('refreshPlUpload');
+                return false;
+            }, this));
+            // Configuring dialog file meta information
+            this.$element.find("#thrace-dlg-meta-edit-" + this.options.id).dialog({
+                'autoOpen': false,
+                'modal': true,
+                'width': 'auto',
+                close: $.proxy(function(event, ui) {
+                    this.$element.find('#' + this.options.title_id).val(
+                        this.$element.find('#thrace-meta-title-' + this.options.id).val());
+                    this.$element.find('#' + this.options.caption_id).val(
+                        this.$element.find('#thrace-meta-caption-' + this.options.id).val());
+                    this.$element.find('#' + this.options.description_id).val(
+                        this.$element.find('#thrace-meta-description-' + this.options.id).val());
+                    this.$element.find('#' + this.options.author_id).val(
+                        this.$element.find('#thrace-meta-author-' + this.options.id).val());
+                    this.$element.find('#' + this.options.copywrite_id).val(
+                        this.$element.find('#thrace-meta-copywrite-' + this.options.id).val());
+                }, this)
+            });
+            // Opens dialog file edit meta
+            this.$element.find('#thrace-meta-btn-edit-' + this.options.id).click($.proxy(function() {
+                this.$element.find('#thrace-dlg-meta-edit-' + this.options.id).dialog('open');
+            }, this));
+            // Saves changes of file meta information and closes dialog
+            this.$element.find('#thrace-edit-dlg-done-btn-' + this.options.id).button({
+                icons: {
+                    primary: "ui-icon ui-icon-check"
+                }
+            }).click($.proxy(function() {
+                this.$element.find('#thrace-dlg-meta-edit-' + this.options.id).dialog('close');
+            }, this));
+        },
+
+        setupUploaderCallbacks: function(){
+            //  Uploader Event: Refresh
+            $('body').bind('refreshPlUpload', $.proxy(function() {
+                this.uploader.refresh();
+            }, this));
+            //  Uploader Event: FilesAdded 
+            this.uploader.bind('FilesAdded', $.proxy(function(up, files) {
+                var html;
+                setTimeout(function() {
+                    up.start();
+                }, 100);
+                //
+                $('#thrace-upload-remove-file-' + this.options.id).find('a').attr('id', files[0].id);
+                //
+                html = files[0].name.substring(0, 50) + ' (' + plupload.formatSize(files[0].size) + ')';
+                //
+                this.fileInfoSection.html(html);
+            }, this));
+            // Uploader Event: UploadFile
+            this.uploader.bind('UploadFile', $.proxy(function(up) {
+                this.uploadButton.button("option", "disabled", true);
+                this.disableButtons();
+                this.$element.find('#thrace-upload-file-' + this.options.id).hide();
+                this.progressbar.fadeIn().next().fadeIn(function() {
+                    $('body').trigger('refreshPlUpload');
+                });
+
+            }, this));
+            // Uploader Event: UploadProgress
+            this.uploader.bind('UploadProgress', $.proxy(function(up, file) {
+                this.progressbar.progressbar("option", "value", file.percent);
+                this.progressbar.next().find('strong').html(file.percent + '%');
+            }, this));
+            // Uploader Event: FileUploaded
+            this.uploader.bind("FileUploaded", $.proxy(function(up, file, response) {
+                this.progressbar.fadeOut();
+                // response from server
+                var data = $.parseJSON(response.response);
+                //
+                if (data.success === false) {
+                    this.showError(data.err_msg);
+                    if ($('#' + this.options.name_id).val() == '') {
+                        this.disableButtons();
+                    }
+                } else if (data.success === true) {
+                    this.$element.find('#' + this.options.name_id).val(data.name);
+                    this.$element.find('#' + this.options.original_name_id).val(file.name);
+                    this.$element.find('#' + this.options.hash_id).val(data.hash);
+                    this.$element.find('#' + this.options.scheduled_for_deletion_id).val(0);
+                    //
+                    $('#thrace-file-empty-' + this.options.id).hide();
+                    //
+                    $('#thrace-file-name-' + this.options.id).fadeIn()
+                        .find('.thrace-file-name').text(file.name.substring(0, 50))
+                        .fadeIn($.proxy(function() {
+                            $('body').trigger('refreshPlUpload');
+                            this.uploadButton.button("option", "disabled", false);
+                            this.enableButtons();
+                        }, this));
+                    //
+                    $('#thrace-upload-file-' + this.options.id).fadeIn();
+                }
+                //
+                this.progressbar.next().fadeOut(function() {
+                    $('body').trigger('refreshPlUpload');
+                });
+            }, this));
+        },
+
+        setupUploader: function(){
+            this.uploader = new plupload.Uploader({
+                runtimes: this.options.runtimes,
+                multi_selection: false,
+                multiple_queues: false,
+                dragdrop: true,
+                drop_element: 'thrace-file-' + this.options.id,
+                max_file_count: 1,
+                browse_button: 'thrace-file-btn-upload-' + this.options.id,
+                multipart: true,
+                multipart_params: {
+                    thrace_media_id: this.options.id
+                },
+                url: this.options.upload_url,
+                flash_swf_url: this.options.plupload_flash_path_swf
+            });
+        },
+
+        checkEmpty: function(){
+            // Checking if value is empty
+            if (this.$element.find('#' + this.options.name_id).val() === '') {
+                this.disableButtons();
+
+            } else {
+                this.populateMeta();
+            }
+        },
+
+        registerButtons: function() {
+            // Create Upload button
+            this.$element.find('.thrace-file-upload-button').button();
+            // Register
+            this.uploadButton = this.$element.find('#thrace-file-btn-upload-' + this.options.id);
+            this.enableButton = this.$element.find('#thrace-file-btn-enabled-' + this.options.id);
+            this.removeButton = this.$element.find('#thrace-file-btn-remove-' + this.options.id);
+            this.editButton = this.$element.find('#thrace-meta-btn-edit-' + this.options.id);
+        },
+
+        registerElements: function() {
+            // Error
+            this.errorSection = this.$element.find('#thrace-file-error-' + this.options.id);
+            // Info
+            this.fileInfoSection = this.$element.find('#thrace-file-info-' + this.options.id);
+            // Progress
+            this.progressbar = this.$element.find('#thrace-progressbar-' + this.options.id).progressbar();
+            //
+            this.fileUpload = this.$element.find('.thrace-file-upload');
+        },
+
+        disableButtons: function() {
+            this.enableButton.button("option", {
+                "disabled": true
+            });
+            this.removeButton.button("option", "disabled", true);
+            this.editButton.button("option", "disabled", true);
+        },
+
+        enableButtons: function() {
+            this.enableButton.button("option", {
+                "disabled": false
+            });
+            this.removeButton.button("option", "disabled", false);
+            this.editButton.button("option", "disabled", false);
+        },
+
+        showError: function(err_msg) {
+            this.errorSection
+                .fadeIn(function() {
+                    $('body').trigger('refreshPlUpload');
                 })
                 .find('.thrace-fileupload-error')
                 .html(err_msg);
-            jQuery('#thrace-file-btn-upload-' + options.id).button( "option", "disabled", true );
-            disableButtons();
-        };
-                
-        // Check if any errors displayed
-        var hasError = function(){
-            return jQuery('#thrace-file-error-' + options.id).is(':visible');
-        }
-        
-        // Toggle active button 
-        var toggleActive = function(){
-            var button = jQuery('#thrace-file-btn-enabled-' + options.id);
-            var elm = jQuery('#' + options.enabled_id); 
-            if(button.hasClass('ui-icon-bullet')){
-                button.removeClass('ui-icon-bullet').addClass('ui-icon-radio-on');
-                elm.val(0);
+            this.uploadButton.button("option", "disabled", true);
+            this.disableButtons();
+        },
+
+        hasError: function() {
+            return this.errorSection.is(':visible');
+        },
+
+        toggleActive: function() {
+            var element = this.$element.find('#' + this.options.enabled_id);
+            if (this.enableButton.hasClass('ui-icon-bullet')) {
+                this.enableButton.removeClass('ui-icon-bullet').addClass('ui-icon-radio-on');
+                element.val(0);
             } else {
-                button.removeClass('ui-icon-radio-on').addClass('ui-icon-bullet');
-                elm.val(1);
+                this.enableButton.removeClass('ui-icon-radio-on').addClass('ui-icon-bullet');
+                element.val(1);
             }
-        };
-        
-        jQuery('#thrace-file-btn-enabled-' + options.id).click(function(event){
-            toggleActive();
-        });
-                
-                
-        // Closes the error message.
-        jQuery('#thrace-upload-error-cancel-' + options.id).click(function(){
-            jQuery('#thrace-file-error-' + options.id)
-                .fadeOut(function(){
-                    jQuery('body').trigger('refreshPlUpload');
-                });
-                
-            jQuery('#thrace-file-btn-upload-' + options.id).button( "option", "disabled", false );
-            
-            if(jQuery('#' + options.name_id).val() != ''){
-                enableButtons();
-            }
-             
-            jQuery('#thrace-upload-file-' + options.id).fadeIn(function(){
-                jQuery('body').trigger('refreshPlUpload');
+        },
+
+        setupEvents: function() {
+            // disable click
+            this.uploadButton.click(function() {
+                return false;
             });
-            
-            return false;
-        });
-    
-        // Populate meta data
-        var populateMeta = function(){ 
-            jQuery('#thrace-meta-title-' + options.id).val(jQuery('#' + options.title_id).val());
-            jQuery('#thrace-meta-caption-' + options.id).val(jQuery('#' + options.caption_id).val());
-            jQuery('#thrace-meta-description-' + options.id).val(jQuery('#' + options.description_id).val());                       
-            jQuery('#thrace-meta-author-' + options.id).val(jQuery('#' + options.author_id).val());                       
-            jQuery('#thrace-meta-copywrite-' + options.id).val(jQuery('#' + options.copywrite_id).val());                       
-        };
-
-        //  Reset meta data
-        var resetMeta = function(){
-            jQuery('#' + options.title_id).val('');
-            jQuery('#thrace-meta-title-' + options.id).val('');
-            jQuery('#' + options.caption_id).val('');
-            jQuery('#thrace-meta-caption-' + options.id).val('');
-            jQuery('#' + options.description_id).val(''); 
-            jQuery('#thrace-meta-description-' + options.id).val('');
-            jQuery('#' + options.author_id).val(''); 
-            jQuery('#thrace-meta-author-' + options.id).val('');
-            jQuery('#' + options.copywrite_id).val(''); 
-            jQuery('#thrace-meta-copywrite-' + options.id).val('');
-        };
-
-        // Checking if value is empty
-        if(jQuery('#' + options.name_id).val() === ''){
-            disableButtons();
-
-        } else {
-            populateMeta();
-        }
-
-        // Progress bar
-        var progressbar = jQuery('#thrace-progressbar-' + options.id).progressbar();
-
-        // Configuring uploader
-        var uploader = new plupload.Uploader({
-            runtimes : options.runtimes,
-            multi_selection:false,
-            multiple_queues : false,
-            dragdrop : true,
-            drop_element: 'thrace-file-' + options.id,
-            max_file_count : 1,
-            browse_button : 'thrace-file-btn-upload-' + options.id,
-            multipart: true,
-            multipart_params: {
-                thrace_media_id: options.id
-            },
-            url : options.upload_url,
-            flash_swf_url : options.plupload_flash_path_swf
-        });
-            
-        // Custom event used for refreshing (flash) plupload
-        jQuery('body').bind('refreshPlUpload', function(){
-            uploader.refresh();
-        });
-
-        //  Uploader Event: FilesAdded 
-        uploader.bind('FilesAdded', function(up, files) {
-            setTimeout(function () { 
-                up.start();
-            }, 100);
-            
-            jQuery('#thrace-upload-remove-file-' + options.id).find('a').attr('id', files[0].id);
-                        
-            var html = files[0].name.substring(0, 50) + ' (' + plupload.formatSize(files[0].size) + ')';
-                      
-            jQuery('#thrace-file-info-'+ options.id).html(html);  
-        });
-
-
-        // Uploader Event: UploadFile
-        uploader.bind('UploadFile', function(up) { 
-            jQuery('#thrace-file-btn-upload-' + options.id).button( "option", "disabled", true )
-            disableButtons();
-            jQuery('#thrace-upload-file-' + options.id).hide();
-            progressbar.fadeIn().next().fadeIn(function(){
-                jQuery('body').trigger('refreshPlUpload');
-            });
-                       
-        });
-
-        // Uploader Event: UploadProgress
-        uploader.bind('UploadProgress', function(up, file) {
-            jQuery('#thrace-progressbar-' + options.id).progressbar("option", "value", file.percent);
-            jQuery('#thrace-progressbar-' + options.id).next().find('strong').html(file.percent + '%');
-
-        });
-
-        // Uploader Event: FileUploaded
-        uploader.bind("FileUploaded", function(up, file, response) { 
-            progressbar.fadeOut();
-
-            // response from server
-            var data = jQuery.parseJSON(response.response); 
-            
-            if(data.success === false){
-                showError(data.err_msg);
-                                
-                if(jQuery('#' + options.name_id).val() == ''){
-                    disableButtons();
+            //
+            this.enableButton.click($.proxy(function(event) {
+                this.toggleActive();
+            }, this));
+            //
+            this.$element.find('#thrace-upload-error-cancel-' + this.options.id).click($.proxy(function() {
+                this.errorSection
+                    .fadeOut(function() {
+                        // NOTE: is this really necessary in the main scope?
+                        $('body').trigger('refreshPlUpload');
+                    });
+                //
+                this.uploadButton.button("option", "disabled", false);
+                //
+                if (this.$element.find('#' + this.options.name_id).val() != '') {
+                    this.enableButtons();
                 }
+                //
+                $('#thrace-upload-file-' + this.options.id).fadeIn(function() {
+                    $('body').trigger('refreshPlUpload');
+                });
+                //
+                return false;
+            }, this));
+        },
+        // Populate meta data
+        populateMeta: function() {
+            this.$element.find('#thrace-meta-title-' + this.options.id).val(this.$element.find('#' + this.options.title_id).val());
+            this.$element.find('#thrace-meta-caption-' + this.options.id).val(this.$element.find('#' + this.options.caption_id).val());
+            this.$element.find('#thrace-meta-description-' + this.options.id).val(this.$element.find('#' + this.options.description_id).val());
+            this.$element.find('#thrace-meta-author-' + this.options.id).val(this.$element.find('#' + this.options.author_id).val());
+            this.$element.find('#thrace-meta-copywrite-' + this.options.id).val(this.$element.find('#' + this.options.copywrite_id).val());
+        },
+        //  Reset meta data
+        resetMeta: function() {
+            this.$element.find('#' + this.options.title_id).val('');
+            this.$element.find('#thrace-meta-title-' + this.options.id).val('');
+            this.$element.find('#' + this.options.caption_id).val('');
+            this.$element.find('#thrace-meta-caption-' + this.options.id).val('');
+            this.$element.find('#' + this.options.description_id).val('');
+            this.$element.find('#thrace-meta-description-' + this.options.id).val('');
+            this.$element.find('#' + this.options.author_id).val('');
+            this.$element.find('#thrace-meta-author-' + this.options.id).val('');
+            this.$element.find('#' + this.options.copywrite_id).val('');
+            this.$element.find('#thrace-meta-copywrite-' + this.options.id).val('');
+        }
+    };
 
-            } else if(data.success == true){
-                jQuery('#' + options.name_id).val(data.name);
-                jQuery('#' + options.original_name_id).val(file.name);
-                jQuery('#' + options.hash_id).val(data.hash);
-                jQuery('#' + options.scheduled_for_deletion_id).val(0);
-                
-                jQuery('#thrace-file-empty-' + options.id).hide();
-                
-                jQuery('#thrace-file-name-' + options.id).fadeIn()
-                    .find('.thrace-file-name').text(file.name.substring(0, 50))
-                    .fadeIn(function(){
-                         jQuery('body').trigger('refreshPlUpload');
-                         jQuery('#thrace-file-btn-upload-' + options.id).button( "option", "disabled", false);
-                         enableButtons();
-                    });                 
-                
-                jQuery('#thrace-upload-file-' + options.id).fadeIn();
-            }
-
-            jQuery('#thrace-progressbar-' + options.id).next().fadeOut(function(){
-                jQuery('body').trigger('refreshPlUpload');
-            });
-            
-
-        });
-
-        // Initializing uploader
-        uploader.init();
-
-        // Removes file from upload queue
-        jQuery('#thrace-upload-remove-file-' + options.id).find('a').click(function(){
-            uploader.removeFile(uploader.getFile(jQuery(this).attr('id')));
-            jQuery('#thrace-progressbar-' + options.id).fadeOut().next().fadeOut(function(){
-                jQuery('#thrace-upload-file-' + options.id).fadeIn();
-                jQuery('body').trigger('refreshPlUpload');
-            });
-            
-            return false;
-        });
-
-        // Remove button click event
-        jQuery('#thrace-file-btn-remove-' + options.id).click(function(){ 
-            jQuery('#' + options.scheduled_for_deletion_id).val(true);
-            jQuery('#' + options.original_name_id).val('');
-            jQuery('#' + options.hash_id).val('');
-            
-            
-            jQuery('#thrace-file-name-' + options.id).hide();
-            jQuery('#thrace-file-size-' + options.id).hide();
-            jQuery('#thrace-file-empty-' + options.id).fadeIn(function(){
-                jQuery('body').trigger('refreshPlUpload');
-            });
-            resetMeta();
-            disableButtons();
-            
-            return false;
-        });
-
-
-        // Configuring dialog file meta information
-        jQuery("#thrace-dlg-meta-edit-" + options.id).dialog({
-            'autoOpen' : false,
-            'modal' : true,
-            'width' : 'auto',
-            close: function(event, ui) { 
-                jQuery('#' + options.title_id).val(jQuery('#thrace-meta-title-' + options.id).val());
-                jQuery('#' + options.caption_id).val(jQuery('#thrace-meta-caption-' + options.id).val());
-                jQuery('#' + options.description_id).val(jQuery('#thrace-meta-description-' + options.id).val());
-                jQuery('#' + options.author_id).val(jQuery('#thrace-meta-author-' + options.id).val());
-                jQuery('#' + options.copywrite_id).val(jQuery('#thrace-meta-copywrite-' + options.id).val());
+    $.fn[pluginName] = function(options) {
+        return this.each(function() {
+            if (!$.data(this, "plugin_" + pluginName)) {
+                $.data(this, "plugin_" + pluginName,
+                    new Plugin(this, this.options));
             }
         });
+    };
 
-        // Opens dialog file edit meta
-        jQuery('#thrace-meta-btn-edit-' + options.id).click(function(){
-            jQuery('#thrace-dlg-meta-edit-' + options.id).dialog('open');
-        });
+    $('.thrace-file-upload-main').thraceFileUpload();
 
-        // Saves changes of file meta information and closes dialog
-        jQuery('#thrace-edit-dlg-done-btn-' + options.id).button({
-            icons: {
-                primary: "ui-icon ui-icon-check"
-            }
-        }).click(function(){
-            jQuery('#thrace-dlg-meta-edit-' + options.id).dialog('close');
-        });
-    });
-
-    jQuery('.thrace-file-upload-main').fadeIn(1000);
-
-});
+})(jQuery, plupload, window, document);

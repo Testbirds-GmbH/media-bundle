@@ -9,4 +9,6 @@ composer.lock
 # Doctrine backup files 
 *.php~
 
-
+# Sublime
+*.sublime-project
+*.sublime-workspace
