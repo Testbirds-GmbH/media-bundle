@@ -73,8 +73,8 @@
                 this.$element.find('#thrace-file-empty-' + this.options.id).fadeIn(function() {
                     $('body').trigger('refreshPlUpload');
                 });
-                resetMeta();
-                disableButtons();
+                this.resetMeta();
+                this.disableButtons();
 
                 return false;
             }, this));
